@@ -15,9 +15,10 @@ function generateId(): string {
 
 export interface DaemonCommand {
   id: string;
-  action: 'exec' | 'navigate' | 'tabs' | 'cookies' | 'screenshot' | 'close-window';
+  action: 'exec' | 'navigate' | 'tabs' | 'cookies' | 'screenshot' | 'close-window' | 'sessions';
   tabId?: number;
   code?: string;
+  workspace?: string;
   url?: string;
   op?: string;
   index?: number;
@@ -110,4 +111,9 @@ export async function sendCommand(
   }
   // Unreachable — the loop always returns or throws
   throw new Error('sendCommand: max retries exhausted');
+}
+
+export async function listSessions(): Promise<any[]> {
+  const result = await sendCommand('sessions');
+  return Array.isArray(result) ? result : [];
 }

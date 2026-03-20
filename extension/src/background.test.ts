@@ -104,9 +104,9 @@ describe('background tab isolation', () => {
     vi.stubGlobal('chrome', chrome);
 
     const mod = await import('./background');
-    mod.__test__.setAutomationWindowId(1);
+    mod.__test__.setAutomationWindowId('site:twitter', 1);
 
-    const result = await mod.__test__.handleTabs({ id: '1', action: 'tabs', op: 'list' });
+    const result = await mod.__test__.handleTabs({ id: '1', action: 'tabs', op: 'list', workspace: 'site:twitter' }, 'site:twitter');
 
     expect(result.ok).toBe(true);
     expect(result.data).toEqual([
@@ -125,11 +125,27 @@ describe('background tab isolation', () => {
     vi.stubGlobal('chrome', chrome);
 
     const mod = await import('./background');
-    mod.__test__.setAutomationWindowId(1);
+    mod.__test__.setAutomationWindowId('site:twitter', 1);
 
-    const result = await mod.__test__.handleTabs({ id: '2', action: 'tabs', op: 'new', url: 'https://new.example' });
+    const result = await mod.__test__.handleTabs({ id: '2', action: 'tabs', op: 'new', url: 'https://new.example', workspace: 'site:twitter' }, 'site:twitter');
 
     expect(result.ok).toBe(true);
     expect(create).toHaveBeenCalledWith({ windowId: 1, url: 'https://new.example', active: true });
+  });
+
+  it('reports sessions per workspace', async () => {
+    const { chrome } = createChromeMock();
+    vi.stubGlobal('chrome', chrome);
+
+    const mod = await import('./background');
+    mod.__test__.setAutomationWindowId('site:twitter', 1);
+    mod.__test__.setAutomationWindowId('site:zhihu', 2);
+
+    const result = await mod.__test__.handleSessions({ id: '3', action: 'sessions' });
+    expect(result.ok).toBe(true);
+    expect(result.data).toEqual(expect.arrayContaining([
+      expect.objectContaining({ workspace: 'site:twitter', windowId: 1 }),
+      expect.objectContaining({ workspace: 'site:zhihu', windowId: 2 }),
+    ]));
   });
 });

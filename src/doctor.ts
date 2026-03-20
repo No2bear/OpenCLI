@@ -8,12 +8,13 @@
 import chalk from 'chalk';
 import { checkDaemonStatus } from './browser/discover.js';
 import { BrowserBridge } from './browser/index.js';
-import { browserSession } from './runtime.js';
+import { listSessions } from './browser/daemon-client.js';
 
 export type DoctorOptions = {
   fix?: boolean;
   yes?: boolean;
   live?: boolean;
+  sessions?: boolean;
   cliVersion?: string;
 };
 
@@ -28,6 +29,7 @@ export type DoctorReport = {
   daemonRunning: boolean;
   extensionConnected: boolean;
   connectivity?: ConnectivityResult;
+  sessions?: Array<{ workspace: string; windowId: number; tabCount: number; idleMsRemaining: number }>;
   issues: string[];
 };
 
@@ -55,6 +57,9 @@ export async function runBrowserDoctor(opts: DoctorOptions = {}): Promise<Doctor
   if (opts.live) {
     connectivity = await checkConnectivity();
   }
+  const sessions = opts.sessions && status.running && status.extensionConnected
+    ? await listSessions() as Array<{ workspace: string; windowId: number; tabCount: number; idleMsRemaining: number }>
+    : undefined;
 
   const issues: string[] = [];
   if (!status.running) {
@@ -78,6 +83,7 @@ export async function runBrowserDoctor(opts: DoctorOptions = {}): Promise<Doctor
     daemonRunning: status.running,
     extensionConnected: status.extensionConnected,
     connectivity,
+    sessions,
     issues,
   };
 }
@@ -104,6 +110,17 @@ export function renderBrowserDoctorReport(report: DoctorReport): string {
     lines.push(`${chalk.dim('[SKIP]')} Connectivity: not tested (use --live)`);
   }
 
+  if (report.sessions) {
+    lines.push('', chalk.bold('Sessions:'));
+    if (report.sessions.length === 0) {
+      lines.push(chalk.dim('  • no active automation sessions'));
+    } else {
+      for (const session of report.sessions) {
+        lines.push(chalk.dim(`  • ${session.workspace} → window ${session.windowId}, tabs=${session.tabCount}, idle=${Math.ceil(session.idleMsRemaining / 1000)}s`));
+      }
+    }
+  }
+
   if (report.issues.length) {
     lines.push('', chalk.yellow('Issues:'));
     for (const issue of report.issues) {
@@ -115,4 +132,3 @@ export function renderBrowserDoctorReport(report: DoctorReport): string {
 
   return lines.join('\n');
 }
-

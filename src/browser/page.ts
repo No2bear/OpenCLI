@@ -19,6 +19,8 @@ import { wrapForEval } from './utils.js';
  * Page — implements IPage by talking to the daemon via HTTP.
  */
 export class Page implements IPage {
+  constructor(private readonly workspace: string = 'default') {}
+
   /** Active tab ID, set after navigate and used in all subsequent commands */
   private _tabId: number | undefined;
 
@@ -27,9 +29,14 @@ export class Page implements IPage {
     return this._tabId !== undefined ? { tabId: this._tabId } : {};
   }
 
+  private _workspaceOpt(): { workspace: string } {
+    return { workspace: this.workspace };
+  }
+
   async goto(url: string): Promise<void> {
     const result = await sendCommand('navigate', {
       url,
+      ...this._workspaceOpt(),
       ...this._tabOpt(),
     }) as { tabId?: number };
     // Remember the tabId for subsequent exec calls
@@ -41,7 +48,7 @@ export class Page implements IPage {
   /** Close the automation window in the extension */
   async closeWindow(): Promise<void> {
     try {
-      await sendCommand('close-window', {});
+      await sendCommand('close-window', { ...this._workspaceOpt() });
     } catch {
       // Window may already be closed or daemon may be down
     }
@@ -49,11 +56,11 @@ export class Page implements IPage {
 
   async evaluate(js: string): Promise<any> {
     const code = wrapForEval(js);
-    return sendCommand('exec', { code, ...this._tabOpt() });
+    return sendCommand('exec', { code, ...this._workspaceOpt(), ...this._tabOpt() });
   }
 
   async getCookies(opts: { domain?: string; url?: string } = {}): Promise<any[]> {
-    const result = await sendCommand('cookies', opts);
+    const result = await sendCommand('cookies', { ...this._workspaceOpt(), ...opts });
     return Array.isArray(result) ? result : [];
   }
 
@@ -86,7 +93,7 @@ export class Page implements IPage {
         return buildTree(document.body, 0);
       })()
     `;
-    const raw = await sendCommand('exec', { code, ...this._tabOpt() });
+    const raw = await sendCommand('exec', { code, ...this._workspaceOpt(), ...this._tabOpt() });
     if (opts.raw) return raw;
     if (typeof raw === 'string') return formatSnapshot(raw, opts);
     return raw;
@@ -105,7 +112,7 @@ export class Page implements IPage {
         return 'clicked';
       })()
     `;
-    await sendCommand('exec', { code, ...this._tabOpt() });
+    await sendCommand('exec', { code, ...this._workspaceOpt(), ...this._tabOpt() });
   }
 
   async typeText(ref: string, text: string): Promise<void> {
@@ -124,7 +131,7 @@ export class Page implements IPage {
         return 'typed';
       })()
     `;
-    await sendCommand('exec', { code, ...this._tabOpt() });
+    await sendCommand('exec', { code, ...this._workspaceOpt(), ...this._tabOpt() });
   }
 
   async pressKey(key: string): Promise<void> {
@@ -136,7 +143,7 @@ export class Page implements IPage {
         return 'pressed';
       })()
     `;
-    await sendCommand('exec', { code, ...this._tabOpt() });
+    await sendCommand('exec', { code, ...this._workspaceOpt(), ...this._tabOpt() });
   }
 
   async wait(options: number | { text?: string; time?: number; timeout?: number }): Promise<void> {
@@ -161,24 +168,24 @@ export class Page implements IPage {
           check();
         })
       `;
-      await sendCommand('exec', { code, ...this._tabOpt() });
+      await sendCommand('exec', { code, ...this._workspaceOpt(), ...this._tabOpt() });
     }
   }
 
   async tabs(): Promise<any> {
-    return sendCommand('tabs', { op: 'list' });
+    return sendCommand('tabs', { op: 'list', ...this._workspaceOpt() });
   }
 
   async closeTab(index?: number): Promise<void> {
-    await sendCommand('tabs', { op: 'close', ...(index !== undefined ? { index } : {}) });
+    await sendCommand('tabs', { op: 'close', ...this._workspaceOpt(), ...(index !== undefined ? { index } : {}) });
   }
 
   async newTab(): Promise<void> {
-    await sendCommand('tabs', { op: 'new' });
+    await sendCommand('tabs', { op: 'new', ...this._workspaceOpt() });
   }
 
   async selectTab(index: number): Promise<void> {
-    await sendCommand('tabs', { op: 'select', index });
+    await sendCommand('tabs', { op: 'select', index, ...this._workspaceOpt() });
   }
 
   async networkRequests(includeStatic: boolean = false): Promise<any> {
@@ -195,7 +202,7 @@ export class Page implements IPage {
           }));
       })()
     `;
-    return sendCommand('exec', { code, ...this._tabOpt() });
+    return sendCommand('exec', { code, ...this._workspaceOpt(), ...this._tabOpt() });
   }
 
   /**
@@ -221,6 +228,7 @@ export class Page implements IPage {
     path?: string;
   } = {}): Promise<string> {
     const base64 = await sendCommand('screenshot', {
+      ...this._workspaceOpt(),
       format: options.format,
       quality: options.quality,
       fullPage: options.fullPage,
@@ -243,6 +251,7 @@ export class Page implements IPage {
     const dy = direction === 'up' ? -amount : direction === 'down' ? amount : 0;
     await sendCommand('exec', {
       code: `window.scrollBy(${dx}, ${dy})`,
+      ...this._workspaceOpt(),
       ...this._tabOpt(),
     });
   }
@@ -270,7 +279,7 @@ export class Page implements IPage {
         }
       })()
     `;
-    await sendCommand('exec', { code, ...this._tabOpt() });
+    await sendCommand('exec', { code, ...this._workspaceOpt(), ...this._tabOpt() });
   }
 
   async installInterceptor(pattern: string): Promise<void> {

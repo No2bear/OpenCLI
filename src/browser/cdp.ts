@@ -18,7 +18,7 @@ export class CDPBridge {
   private _idCounter = 0;
   private _pending = new Map<number, { resolve: (val: any) => void; reject: (err: Error) => void }>();
 
-  async connect(opts?: { timeout?: number }): Promise<IPage> {
+  async connect(opts?: { timeout?: number; workspace?: string }): Promise<IPage> {
     const endpoint = process.env.OPENCLI_CDP_ENDPOINT;
     if (!endpoint) throw new Error('OPENCLI_CDP_ENDPOINT is not set');
 

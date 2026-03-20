@@ -90,36 +90,48 @@ function scheduleReconnect(): void {
 // user's active browsing session is never touched.
 // The window auto-closes after 30s of idle (no commands).
 
-let automationWindowId: number | null = null;
-let windowIdleTimer: ReturnType<typeof setTimeout> | null = null;
+type AutomationSession = {
+  windowId: number;
+  idleTimer: ReturnType<typeof setTimeout> | null;
+  idleDeadlineAt: number;
+};
+
+const automationSessions = new Map<string, AutomationSession>();
 const WINDOW_IDLE_TIMEOUT = 30000; // 30s
 
-function resetWindowIdleTimer(): void {
-  if (windowIdleTimer) clearTimeout(windowIdleTimer);
-  windowIdleTimer = setTimeout(async () => {
-    if (automationWindowId !== null) {
-      try {
-        await chrome.windows.remove(automationWindowId);
-        console.log(`[opencli] Automation window ${automationWindowId} closed (idle timeout)`);
-      } catch {
-        // Already gone
-      }
-      automationWindowId = null;
+function getWorkspaceKey(workspace?: string): string {
+  return workspace?.trim() || 'default';
+}
+
+function resetWindowIdleTimer(workspace: string): void {
+  const session = automationSessions.get(workspace);
+  if (!session) return;
+  if (session.idleTimer) clearTimeout(session.idleTimer);
+  session.idleDeadlineAt = Date.now() + WINDOW_IDLE_TIMEOUT;
+  session.idleTimer = setTimeout(async () => {
+    const current = automationSessions.get(workspace);
+    if (!current) return;
+    try {
+      await chrome.windows.remove(current.windowId);
+      console.log(`[opencli] Automation window ${current.windowId} (${workspace}) closed (idle timeout)`);
+    } catch {
+      // Already gone
     }
-    windowIdleTimer = null;
+    automationSessions.delete(workspace);
   }, WINDOW_IDLE_TIMEOUT);
 }
 
 /** Get or create the dedicated automation window. */
-async function getAutomationWindow(): Promise<number> {
+async function getAutomationWindow(workspace: string): Promise<number> {
   // Check if our window is still alive
-  if (automationWindowId !== null) {
+  const existing = automationSessions.get(workspace);
+  if (existing) {
     try {
-      await chrome.windows.get(automationWindowId);
-      return automationWindowId;
+      await chrome.windows.get(existing.windowId);
+      return existing.windowId;
     } catch {
       // Window was closed by user
-      automationWindowId = null;
+      automationSessions.delete(workspace);
     }
   }
 
@@ -131,17 +143,25 @@ async function getAutomationWindow(): Promise<number> {
     height: 900,
     type: 'normal',
   });
-  automationWindowId = win.id!;
-  console.log(`[opencli] Created automation window ${automationWindowId}`);
-  return automationWindowId;
+  const session: AutomationSession = {
+    windowId: win.id!,
+    idleTimer: null,
+    idleDeadlineAt: Date.now() + WINDOW_IDLE_TIMEOUT,
+  };
+  automationSessions.set(workspace, session);
+  console.log(`[opencli] Created automation window ${session.windowId} (${workspace})`);
+  resetWindowIdleTimer(workspace);
+  return session.windowId;
 }
 
 // Clean up when the automation window is closed
 chrome.windows.onRemoved.addListener((windowId) => {
-  if (windowId === automationWindowId) {
-    console.log('[opencli] Automation window closed');
-    automationWindowId = null;
-    if (windowIdleTimer) { clearTimeout(windowIdleTimer); windowIdleTimer = null; }
+  for (const [workspace, session] of automationSessions.entries()) {
+    if (session.windowId === windowId) {
+      console.log(`[opencli] Automation window closed (${workspace})`);
+      if (session.idleTimer) clearTimeout(session.idleTimer);
+      automationSessions.delete(workspace);
+    }
   }
 });
 
@@ -173,22 +193,25 @@ chrome.alarms.onAlarm.addListener((alarm) => {
 // ─── Command dispatcher ─────────────────────────────────────────────
 
 async function handleCommand(cmd: Command): Promise<Result> {
+  const workspace = getWorkspaceKey(cmd.workspace);
   // Reset idle timer on every command (window stays alive while active)
-  resetWindowIdleTimer();
+  resetWindowIdleTimer(workspace);
   try {
     switch (cmd.action) {
       case 'exec':
-        return await handleExec(cmd);
+        return await handleExec(cmd, workspace);
       case 'navigate':
-        return await handleNavigate(cmd);
+        return await handleNavigate(cmd, workspace);
       case 'tabs':
-        return await handleTabs(cmd);
+        return await handleTabs(cmd, workspace);
       case 'cookies':
         return await handleCookies(cmd);
       case 'screenshot':
-        return await handleScreenshot(cmd);
+        return await handleScreenshot(cmd, workspace);
       case 'close-window':
-        return await handleCloseWindow(cmd);
+        return await handleCloseWindow(cmd, workspace);
+      case 'sessions':
+        return await handleSessions(cmd);
       default:
         return { id: cmd.id, ok: false, error: `Unknown action: ${cmd.action}` };
     }
@@ -214,11 +237,11 @@ function isWebUrl(url?: string): boolean {
  * If explicit tabId is given, use that directly.
  * Otherwise, find or create a tab in the dedicated automation window.
  */
-async function resolveTabId(tabId?: number): Promise<number> {
+async function resolveTabId(tabId: number | undefined, workspace: string): Promise<number> {
   if (tabId !== undefined) return tabId;
 
   // Get (or create) the automation window
-  const windowId = await getAutomationWindow();
+  const windowId = await getAutomationWindow(workspace);
 
   // Find the active tab in our automation window
   const tabs = await chrome.tabs.query({ windowId });
@@ -234,24 +257,25 @@ async function resolveTabId(tabId?: number): Promise<number> {
   return newTab.id;
 }
 
-async function listAutomationTabs(): Promise<chrome.tabs.Tab[]> {
-  if (automationWindowId === null) return [];
+async function listAutomationTabs(workspace: string): Promise<chrome.tabs.Tab[]> {
+  const session = automationSessions.get(workspace);
+  if (!session) return [];
   try {
-    return await chrome.tabs.query({ windowId: automationWindowId });
+    return await chrome.tabs.query({ windowId: session.windowId });
   } catch {
-    automationWindowId = null;
+    automationSessions.delete(workspace);
     return [];
   }
 }
 
-async function listAutomationWebTabs(): Promise<chrome.tabs.Tab[]> {
-  const tabs = await listAutomationTabs();
+async function listAutomationWebTabs(workspace: string): Promise<chrome.tabs.Tab[]> {
+  const tabs = await listAutomationTabs(workspace);
   return tabs.filter((tab) => isWebUrl(tab.url));
 }
 
-async function handleExec(cmd: Command): Promise<Result> {
+async function handleExec(cmd: Command, workspace: string): Promise<Result> {
   if (!cmd.code) return { id: cmd.id, ok: false, error: 'Missing code' };
-  const tabId = await resolveTabId(cmd.tabId);
+  const tabId = await resolveTabId(cmd.tabId, workspace);
   try {
     const data = await executor.evaluateAsync(tabId, cmd.code);
     return { id: cmd.id, ok: true, data };
@@ -260,9 +284,9 @@ async function handleExec(cmd: Command): Promise<Result> {
   }
 }
 
-async function handleNavigate(cmd: Command): Promise<Result> {
+async function handleNavigate(cmd: Command, workspace: string): Promise<Result> {
   if (!cmd.url) return { id: cmd.id, ok: false, error: 'Missing url' };
-  const tabId = await resolveTabId(cmd.tabId);
+  const tabId = await resolveTabId(cmd.tabId, workspace);
   await chrome.tabs.update(tabId, { url: cmd.url });
 
   // Wait for page to finish loading, checking current status first to avoid race
@@ -290,10 +314,10 @@ async function handleNavigate(cmd: Command): Promise<Result> {
   return { id: cmd.id, ok: true, data: { title: tab.title, url: tab.url, tabId } };
 }
 
-async function handleTabs(cmd: Command): Promise<Result> {
+async function handleTabs(cmd: Command, workspace: string): Promise<Result> {
   switch (cmd.op) {
     case 'list': {
-      const tabs = await listAutomationWebTabs();
+      const tabs = await listAutomationWebTabs(workspace);
       const data = tabs
         .map((t, i) => ({
           index: i,
@@ -305,20 +329,20 @@ async function handleTabs(cmd: Command): Promise<Result> {
       return { id: cmd.id, ok: true, data };
     }
     case 'new': {
-      const windowId = await getAutomationWindow();
+      const windowId = await getAutomationWindow(workspace);
       const tab = await chrome.tabs.create({ windowId, url: cmd.url ?? 'about:blank', active: true });
       return { id: cmd.id, ok: true, data: { tabId: tab.id, url: tab.url } };
     }
     case 'close': {
       if (cmd.index !== undefined) {
-        const tabs = await listAutomationWebTabs();
+        const tabs = await listAutomationWebTabs(workspace);
         const target = tabs[cmd.index];
         if (!target?.id) return { id: cmd.id, ok: false, error: `Tab index ${cmd.index} not found` };
         await chrome.tabs.remove(target.id);
         executor.detach(target.id);
         return { id: cmd.id, ok: true, data: { closed: target.id } };
       }
-      const tabId = await resolveTabId(cmd.tabId);
+      const tabId = await resolveTabId(cmd.tabId, workspace);
       await chrome.tabs.remove(tabId);
       executor.detach(tabId);
       return { id: cmd.id, ok: true, data: { closed: tabId } };
@@ -330,7 +354,7 @@ async function handleTabs(cmd: Command): Promise<Result> {
         await chrome.tabs.update(cmd.tabId, { active: true });
         return { id: cmd.id, ok: true, data: { selected: cmd.tabId } };
       }
-      const tabs = await listAutomationWebTabs();
+      const tabs = await listAutomationWebTabs(workspace);
       const target = tabs[cmd.index!];
       if (!target?.id) return { id: cmd.id, ok: false, error: `Tab index ${cmd.index} not found` };
       await chrome.tabs.update(target.id, { active: true });
@@ -358,8 +382,8 @@ async function handleCookies(cmd: Command): Promise<Result> {
   return { id: cmd.id, ok: true, data };
 }
 
-async function handleScreenshot(cmd: Command): Promise<Result> {
-  const tabId = await resolveTabId(cmd.tabId);
+async function handleScreenshot(cmd: Command, workspace: string): Promise<Result> {
+  const tabId = await resolveTabId(cmd.tabId, workspace);
   try {
     const data = await executor.screenshot(tabId, {
       format: cmd.format,
@@ -372,22 +396,46 @@ async function handleScreenshot(cmd: Command): Promise<Result> {
   }
 }
 
-async function handleCloseWindow(cmd: Command): Promise<Result> {
-  if (automationWindowId !== null) {
+async function handleCloseWindow(cmd: Command, workspace: string): Promise<Result> {
+  const session = automationSessions.get(workspace);
+  if (session) {
     try {
-      await chrome.windows.remove(automationWindowId);
+      await chrome.windows.remove(session.windowId);
     } catch {
       // Window may already be closed
     }
-    automationWindowId = null;
+    if (session.idleTimer) clearTimeout(session.idleTimer);
+    automationSessions.delete(workspace);
   }
   return { id: cmd.id, ok: true, data: { closed: true } };
 }
 
+async function handleSessions(cmd: Command): Promise<Result> {
+  const now = Date.now();
+  const data = await Promise.all([...automationSessions.entries()].map(async ([workspace, session]) => ({
+    workspace,
+    windowId: session.windowId,
+    tabCount: (await chrome.tabs.query({ windowId: session.windowId })).filter((tab) => isWebUrl(tab.url)).length,
+    idleMsRemaining: Math.max(0, session.idleDeadlineAt - now),
+  })));
+  return { id: cmd.id, ok: true, data };
+}
+
 export const __test__ = {
   handleTabs,
-  getAutomationWindowId: () => automationWindowId,
-  setAutomationWindowId: (windowId: number | null) => {
-    automationWindowId = windowId;
+  handleSessions,
+  getAutomationWindowId: (workspace: string = 'default') => automationSessions.get(workspace)?.windowId ?? null,
+  setAutomationWindowId: (workspace: string, windowId: number | null) => {
+    if (windowId === null) {
+      const session = automationSessions.get(workspace);
+      if (session?.idleTimer) clearTimeout(session.idleTimer);
+      automationSessions.delete(workspace);
+      return;
+    }
+    automationSessions.set(workspace, {
+      windowId,
+      idleTimer: null,
+      idleDeadlineAt: Date.now() + WINDOW_IDLE_TIMEOUT,
+    });
   },
 };

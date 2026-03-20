@@ -30,17 +30,18 @@ export function withTimeoutMs<T>(promise: Promise<T>, timeoutMs: number, message
 
 /** Interface for browser factory (BrowserBridge or test mocks) */
 export interface IBrowserFactory {
-  connect(opts?: { timeout?: number }): Promise<IPage>;
+  connect(opts?: { timeout?: number; workspace?: string }): Promise<IPage>;
   close(): Promise<void>;
 }
 
 export async function browserSession<T>(
   BrowserFactory: new () => IBrowserFactory,
   fn: (page: IPage) => Promise<T>,
+  opts: { workspace?: string } = {},
 ): Promise<T> {
   const mcp = new BrowserFactory();
   try {
-    const page = await mcp.connect({ timeout: DEFAULT_BROWSER_CONNECT_TIMEOUT });
+    const page = await mcp.connect({ timeout: DEFAULT_BROWSER_CONNECT_TIMEOUT, workspace: opts.workspace });
     return await fn(page);
   } finally {
     await mcp.close().catch(() => {});
