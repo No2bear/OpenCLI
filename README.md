@@ -140,7 +140,6 @@ Run `opencli list` for the live registry.
 | **bbc** | `news` | Public |
 | **bloomberg** | `main` `markets` `economics` `industries` `tech` `politics` `businessweek` `opinions` `feeds` `news` | Public / Browser |
 | **ctrip** | `search` | Browser |
-| **github** | `search` | Public |
 | **arxiv** | `search` `paper` | Public |
 | **wikipedia** | `search` `summary` | Public |
 | **hackernews** | `top` | Public |
