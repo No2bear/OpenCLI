@@ -749,13 +749,15 @@ opencli xiaohongshu creator-profile            # 创作者资料
 opencli xiaohongshu creator-stats              # 创作者数据统计
 ```
 
-## Xiaoyuzhou (小宇宙) ✅
+## Xiaoyuzhou (小宇宙) 🔑
+
+以下小宇宙命令都需要本地凭证：`~/.opencli/xiaoyuzhou.json`。
 
 ```bash
-opencli xiaoyuzhou podcast 12345          # 播客资料 (id positional)
-opencli xiaoyuzhou podcast-episodes 12345 # 播客剧集列表 (id positional)
-opencli xiaoyuzhou episode 12345          # 单集详情 (id positional)
-opencli xiaoyuzhou download 12345         # 下载单集音频 (id positional)
+opencli xiaoyuzhou podcast 12345          # 播客资料 (id positional，需要本地凭证)
+opencli xiaoyuzhou podcast-episodes 12345 # 播客剧集列表 (id positional，需要本地凭证)
+opencli xiaoyuzhou episode 12345          # 单集详情 (id positional，需要本地凭证)
+opencli xiaoyuzhou download 12345         # 下载单集音频 (id positional，需要本地凭证)
 opencli xiaoyuzhou transcript 12345       # 下载单集转录 JSON / 文本（需要本地凭证）
 ```
 

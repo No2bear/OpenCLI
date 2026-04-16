@@ -17341,7 +17341,7 @@
     "name": "download",
     "description": "Download Xiaoyuzhou episode audio",
     "domain": "www.xiaoyuzhoufm.com",
-    "strategy": "public",
+    "strategy": "local",
     "browser": false,
     "args": [
       {
@@ -17424,7 +17424,7 @@
     "name": "episode",
     "description": "View details of a Xiaoyuzhou podcast episode",
     "domain": "www.xiaoyuzhoufm.com",
-    "strategy": "public",
+    "strategy": "local",
     "browser": false,
     "args": [
       {
@@ -17453,7 +17453,7 @@
     "name": "podcast",
     "description": "View a Xiaoyuzhou podcast profile",
     "domain": "www.xiaoyuzhoufm.com",
-    "strategy": "public",
+    "strategy": "local",
     "browser": false,
     "args": [
       {
@@ -17479,9 +17479,9 @@
   {
     "site": "xiaoyuzhou",
     "name": "podcast-episodes",
-    "description": "List recent episodes of a Xiaoyuzhou podcast (up to 15, SSR limit)",
+    "description": "List episodes of a Xiaoyuzhou podcast",
     "domain": "www.xiaoyuzhoufm.com",
-    "strategy": "public",
+    "strategy": "local",
     "browser": false,
     "args": [
       {
@@ -17494,9 +17494,9 @@
       {
         "name": "limit",
         "type": "int",
-        "default": 15,
+        "default": 20,
         "required": false,
-        "help": "Max episodes to show (up to 15, SSR limit)"
+        "help": "Max episodes to show"
       }
     ],
     "columns": [
